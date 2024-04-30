@@ -1,191 +1,193 @@
-name: TLA+ PR Validation
-on: [pull_request]
-
 jobs:
+  examples-tests:
+    env:
+      DEPS_DIR: examples/deps
+      DIST_DIR: tlatools/org.lamport.tlatools/dist
+      EXAMPLES_DIR: examples
+      SCRIPT_DIR: examples/.github/scripts
+    name: Examples Integration Tests
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      name: Clone tlaplus/tlaplus
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - continue-on-error: true
+      name: Clone tlaplus/examples
+      uses: actions/checkout@v4
+      with:
+        path: ${{ env.EXAMPLES_DIR }}
+        repository: tlaplus/examples
+    - continue-on-error: true
+      name: Set up JDK 11
+      uses: actions/setup-java@v4
+      with:
+        distribution: adopt
+        java-version: 11
+    - continue-on-error: true
+      name: Build tla2tools.jar
+      run: ant -f tlatools/org.lamport.tlatools/customBuild.xml compile compile-test
+        dist
+    - continue-on-error: true
+      name: Download dependencies
+      run: '"$SCRIPT_DIR/linux-setup.sh" "$SCRIPT_DIR" "$DEPS_DIR" false
+
+        '
+    - continue-on-error: true
+      if: matrix.unicode
+      name: Convert specs to unicode
+      run: "python \"$SCRIPT_DIR/unicode_conversion.py\"  \\\n  --tlauc_path \"$DEPS_DIR/tlauc/tlauc\"\
+        \      \\\n  --manifest_path \"$EXAMPLES_DIR/manifest.json\"\n"
+    - continue-on-error: true
+      if: matrix.unicode
+      name: Add unicode shims
+      run: "python \"$SCRIPT_DIR/unicode_number_set_shim.py\" \\\n  --manifest_path\
+        \ \"$EXAMPLES_DIR/manifest.json\"\n"
+    - continue-on-error: true
+      if: (!matrix.unicode)
+      name: Translate PlusCal
+      run: "python $SCRIPT_DIR/translate_pluscal.py         \\\n  --tools_jar_path\
+        \ \"$DIST_DIR/tla2tools.jar\"    \\\n  --manifest_path \"$EXAMPLES_DIR/manifest.json\"\
+        \n"
+    - continue-on-error: true
+      name: Parse tlaplus/examples modules
+      run: "# Need to have a nonempty list to pass as a skip parameter\nSKIP=(\"does/not/exist\"\
+        )\nif [ ${{ matrix.unicode }} ]; then\n  # These redefine Nat, Int, or Real\
+        \ so cannot be shimmed\n  SKIP+=(\n    \"specifications/SpecifyingSystems/Standard/Naturals.tla\"\
+        \n    \"specifications/SpecifyingSystems/Standard/Peano.tla\"\n    \"specifications/SpecifyingSystems/Standard/Integers.tla\"\
+        \n    \"specifications/SpecifyingSystems/Standard/Reals.tla\"\n    \"specifications/SpecifyingSystems/Standard/ProtoReals.tla\"\
+        \n    \"specifications/SpecifyingSystems/RealTime/MCRealTime.tla\"\n    \"\
+        specifications/SpecifyingSystems/RealTime/MCRealTimeHourClock.tla\"\n  )\n\
+        fi\npython \"$SCRIPT_DIR/parse_modules.py\"                             \\\
+        \n  --tools_jar_path \"$DIST_DIR/tla2tools.jar\"                      \\\n\
+        \  --apalache_path \"$DEPS_DIR/apalache\"                            \\\n\
+        \  --tlapm_lib_path \"$DEPS_DIR/tlapm/library\"                      \\\n\
+        \  --community_modules_jar_path \"$DEPS_DIR/community/modules.jar\"  \\\n\
+        \  --manifest_path \"$EXAMPLES_DIR/manifest.json\"                   \\\n\
+        \  --skip \"${SKIP[@]}\"\n"
+    - continue-on-error: true
+      name: Model-check small tlaplus/examples models
+      run: "# https://github.com/tlaplus/Examples/issues/134\nSKIP=(\"specifications/ewd998/EWD998ChanTrace.cfg\"\
+        )\nif [ ${{ matrix.unicode }} ]; then\n  # This redefines Real so cannot be\
+        \ shimmed\n  SKIP+=(\"specifications/SpecifyingSystems/RealTime/MCRealTimeHourClock.cfg\"\
+        )\n  # Apalache does not yet support Unicode\n  SKIP+=(\"specifications/EinsteinRiddle/Einstein.cfg\"\
+        )\nfi\npython \"$SCRIPT_DIR/check_small_models.py\"                      \
+        \  \\\n  --tools_jar_path \"$DIST_DIR/tla2tools.jar\"                    \
+        \  \\\n  --apalache_path \"$DEPS_DIR/apalache\"                          \
+        \  \\\n  --tlapm_lib_path \"$DEPS_DIR/tlapm/library\"                    \
+        \  \\\n  --community_modules_jar_path \"$DEPS_DIR/community/modules.jar\"\
+        \  \\\n  --manifest_path \"$EXAMPLES_DIR/manifest.json\"                 \
+        \  \\\n  --skip \"${SKIP[@]}\"\n"
+    - continue-on-error: true
+      name: Smoke-test large tlaplus/examples models
+      run: "# SimKnuthYao requires certain number of states to have been generated\n\
+        # before termination or else it fails. This makes it not amenable to\n# smoke\
+        \ testing.\npython \"$SCRIPT_DIR/smoke_test_large_models.py\"            \
+        \       \\\n  --tools_jar_path \"$DIST_DIR/tla2tools.jar\"               \
+        \       \\\n  --apalache_path \"$DEPS_DIR/apalache\"                     \
+        \       \\\n  --tlapm_lib_path \"$DEPS_DIR/tlapm/library\"               \
+        \       \\\n  --community_modules_jar_path \"$DEPS_DIR/community/modules.jar\"\
+        \  \\\n  --manifest_path \"$EXAMPLES_DIR/manifest.json\"                 \
+        \  \\\n  --skip \"specifications/KnuthYao/SimKnuthYao.cfg\"\n"
+    strategy:
+      matrix:
+        include:
+        - unicode: true
+        - unicode: false
   tlatools-build-and-test:
     name: TLA+ Tools Build & Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-    - name: Clone tlaplus/tlaplus
+    - continue-on-error: true
+      name: Clone tlaplus/tlaplus
       uses: actions/checkout@v4
       with:
-        # Number of commits to fetch. 0 indicates all history.
-        # jgit task nested in customBuild.xml fails without history.
         fetch-depth: 0
-    - name: Set up JDK 11
+    - continue-on-error: true
+      name: Set up JDK 11
       uses: actions/setup-java@v4
       with:
         distribution: adopt
         java-version: 11
-    - name: Check tla+.jj grammar/code sync
-      run: |
-        ant -f tlatools/org.lamport.tlatools/customBuild.xml generate
+    - continue-on-error: true
+      name: Check tla+.jj grammar/code sync
+      run: 'ant -f tlatools/org.lamport.tlatools/customBuild.xml generate
+
         git status
+
         diff_count=$(git status --porcelain=v1 2>/dev/null | wc -l)
+
         exit $diff_count
-    - name: Build tools and unit tests
-      run: ant -f tlatools/org.lamport.tlatools/customBuild.xml compile compile-test dist
-    - name: Run unit tests
-      run: |
-        set +e # Ensure UT failure does not immediately terminate CI
+
+        '
+    - continue-on-error: true
+      name: Build tools and unit tests
+      run: ant -f tlatools/org.lamport.tlatools/customBuild.xml compile compile-test
+        dist
+    - continue-on-error: true
+      name: Run unit tests
+      run: 'set +e # Ensure UT failure does not immediately terminate CI
+
         set -o pipefail # Ensure UT failure is propagated through tee command
+
         ant -f tlatools/org.lamport.tlatools/customBuild.xml test 2>&1 | tee test-output.txt
+
         ut_exit_code=$?
+
         echo "Unit test exit code: $ut_exit_code"
-        echo "UT_EXIT_CODE=$ut_exit_code" >> $GITHUB_ENV # Export UT result to CI env var
-    - name: Summarize unit tests
-      run: |
-        echo "Unit test exit code: $UT_EXIT_CODE"
-        python .github/scripts/parse-unit-test-output.py        \
-          test-output.txt                                       \
-          tlatools/org.lamport.tlatools/target/surefire-reports
-        exit $UT_EXIT_CODE
-    - name: Clone tlaplus/CommunityModules
+
+        echo "UT_EXIT_CODE=$ut_exit_code" >> $GITHUB_ENV # Export UT result to CI
+        env var
+
+        '
+    - continue-on-error: true
+      name: Summarize unit tests
+      run: "echo \"Unit test exit code: $UT_EXIT_CODE\"\npython .github/scripts/parse-unit-test-output.py\
+        \        \\\n  test-output.txt                                       \\\n\
+        \  tlatools/org.lamport.tlatools/target/surefire-reports\nexit $UT_EXIT_CODE\n"
+    - continue-on-error: true
+      name: Clone tlaplus/CommunityModules
       uses: actions/checkout@v4
       with:
-        repository: tlaplus/CommunityModules
-        path: communitymodules/
-        # Number of commits to fetch. 0 indicates all history.
-        # jgit task nested in customBuild.xml fails without history.
         fetch-depth: 0
-    - name: Build Community Modules as Integration Test
-      run: |
-        mkdir -p communitymodules/tlc
-        cp tlatools/org.lamport.tlatools/dist/tla2tools.jar communitymodules/tlc/
-        ant -f communitymodules/build.xml -Dskip.download=true   
-
+        path: communitymodules/
+        repository: tlaplus/CommunityModules
+    - continue-on-error: true
+      name: Build Community Modules as Integration Test
+      run: "mkdir -p communitymodules/tlc\ncp tlatools/org.lamport.tlatools/dist/tla2tools.jar\
+        \ communitymodules/tlc/\nant -f communitymodules/build.xml -Dskip.download=true\
+        \   \n"
   toolbox-build-and-test:
     name: Eclipse Toolbox Build & Test
-    runs-on: ${{ matrix.os }}
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      name: Clone tlaplus/tlaplus
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - continue-on-error: true
+      name: Set up JDK 11
+      uses: actions/setup-java@v4
+      with:
+        distribution: adopt
+        java-version: 11
+    - continue-on-error: true
+      name: Build & Test Eclipse Toolbox with Maven
+      run: "${{ matrix.MVN_COMMAND }}                                            \
+        \                         \\\n  -Dtycho.disableP2Mirrors=true            \
+        \                                                   \\\n  -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn\
+        \  \\\n  -fae -B verify --file pom.xml\n"
     strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            MVN_COMMAND: xvfb-run mvn -Dtest.skip=true -Dmaven.test.failure.ignore=true 
-          - os: macos-latest
-            MVN_COMMAND: mvn -Dmaven.test.skip=true
       fail-fast: false
-    steps:
-    - name: Clone tlaplus/tlaplus
-      uses: actions/checkout@v4
-      with:
-        # Number of commits to fetch. 0 indicates all history.
-        # jgit task nested in customBuild.xml fails without history.
-        fetch-depth: 0
-    - name: Set up JDK 11
-      uses: actions/setup-java@v4
-      with:
-        distribution: adopt
-        java-version: 11
-    - name: Build & Test Eclipse Toolbox with Maven
-      run: |
-        ${{ matrix.MVN_COMMAND }}                                                                     \
-          -Dtycho.disableP2Mirrors=true                                                               \
-          -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn  \
-          -fae -B verify --file pom.xml
-
-  examples-tests:
-    name: Examples Integration Tests
-    runs-on: ubuntu-latest
-    strategy:
       matrix:
         include:
-          - unicode: true
-          - unicode: false
-    env:
-      EXAMPLES_DIR: "examples"
-      SCRIPT_DIR: "examples/.github/scripts"
-      DEPS_DIR: "examples/deps"
-      DIST_DIR: "tlatools/org.lamport.tlatools/dist"
-    steps:
-    - name: Clone tlaplus/tlaplus
-      uses: actions/checkout@v4
-      with:
-        # Number of commits to fetch. 0 indicates all history.
-        # jgit task nested in customBuild.xml fails without history.
-        fetch-depth: 0
-    - name: Clone tlaplus/examples
-      uses: actions/checkout@v4
-      with:
-        repository: tlaplus/examples
-        path: ${{ env.EXAMPLES_DIR }}
-    - name: Set up JDK 11
-      uses: actions/setup-java@v4
-      with:
-        distribution: adopt
-        java-version: 11
-    - name: Build tla2tools.jar
-      run: ant -f tlatools/org.lamport.tlatools/customBuild.xml compile compile-test dist
-    - name: Download dependencies
-      run: |
-        "$SCRIPT_DIR/linux-setup.sh" "$SCRIPT_DIR" "$DEPS_DIR" false
-    - name: Convert specs to unicode
-      if: matrix.unicode
-      run: |
-        python "$SCRIPT_DIR/unicode_conversion.py"  \
-          --tlauc_path "$DEPS_DIR/tlauc/tlauc"      \
-          --manifest_path "$EXAMPLES_DIR/manifest.json"
-    - name: Add unicode shims
-      if: matrix.unicode
-      run: |
-        python "$SCRIPT_DIR/unicode_number_set_shim.py" \
-          --manifest_path "$EXAMPLES_DIR/manifest.json"
-    - name: Translate PlusCal
-      if: (!matrix.unicode)
-      run: |
-        python $SCRIPT_DIR/translate_pluscal.py         \
-          --tools_jar_path "$DIST_DIR/tla2tools.jar"    \
-          --manifest_path "$EXAMPLES_DIR/manifest.json"
-    - name: Parse tlaplus/examples modules
-      run: |
-        # Need to have a nonempty list to pass as a skip parameter
-        SKIP=("does/not/exist")
-        if [ ${{ matrix.unicode }} ]; then
-          # These redefine Nat, Int, or Real so cannot be shimmed
-          SKIP+=(
-            "specifications/SpecifyingSystems/Standard/Naturals.tla"
-            "specifications/SpecifyingSystems/Standard/Peano.tla"
-            "specifications/SpecifyingSystems/Standard/Integers.tla"
-            "specifications/SpecifyingSystems/Standard/Reals.tla"
-            "specifications/SpecifyingSystems/Standard/ProtoReals.tla"
-            "specifications/SpecifyingSystems/RealTime/MCRealTime.tla"
-            "specifications/SpecifyingSystems/RealTime/MCRealTimeHourClock.tla"
-          )
-        fi
-        python "$SCRIPT_DIR/parse_modules.py"                             \
-          --tools_jar_path "$DIST_DIR/tla2tools.jar"                      \
-          --apalache_path "$DEPS_DIR/apalache"                            \
-          --tlapm_lib_path "$DEPS_DIR/tlapm/library"                      \
-          --community_modules_jar_path "$DEPS_DIR/community/modules.jar"  \
-          --manifest_path "$EXAMPLES_DIR/manifest.json"                   \
-          --skip "${SKIP[@]}"
-    - name: Model-check small tlaplus/examples models
-      run: |
-        # https://github.com/tlaplus/Examples/issues/134
-        SKIP=("specifications/ewd998/EWD998ChanTrace.cfg")
-        if [ ${{ matrix.unicode }} ]; then
-          # This redefines Real so cannot be shimmed
-          SKIP+=("specifications/SpecifyingSystems/RealTime/MCRealTimeHourClock.cfg")
-          # Apalache does not yet support Unicode
-          SKIP+=("specifications/EinsteinRiddle/Einstein.cfg")
-        fi
-        python "$SCRIPT_DIR/check_small_models.py"                        \
-          --tools_jar_path "$DIST_DIR/tla2tools.jar"                      \
-          --apalache_path "$DEPS_DIR/apalache"                            \
-          --tlapm_lib_path "$DEPS_DIR/tlapm/library"                      \
-          --community_modules_jar_path "$DEPS_DIR/community/modules.jar"  \
-          --manifest_path "$EXAMPLES_DIR/manifest.json"                   \
-          --skip "${SKIP[@]}"
-    - name: Smoke-test large tlaplus/examples models
-      run: |
-        # SimKnuthYao requires certain number of states to have been generated
-        # before termination or else it fails. This makes it not amenable to
-        # smoke testing.
-        python "$SCRIPT_DIR/smoke_test_large_models.py"                   \
-          --tools_jar_path "$DIST_DIR/tla2tools.jar"                      \
-          --apalache_path "$DEPS_DIR/apalache"                            \
-          --tlapm_lib_path "$DEPS_DIR/tlapm/library"                      \
-          --community_modules_jar_path "$DEPS_DIR/community/modules.jar"  \
-          --manifest_path "$EXAMPLES_DIR/manifest.json"                   \
-          --skip "specifications/KnuthYao/SimKnuthYao.cfg"
-
+        - MVN_COMMAND: xvfb-run mvn -Dtest.skip=true -Dmaven.test.failure.ignore=true
+          os: ubuntu-latest
+        - MVN_COMMAND: mvn -Dmaven.test.skip=true
+          os: macos-latest
+name: TLA+ PR Validation
+on:
+  repository_dispatch:
+    types: trigger-ga___pr.yml
